@@ -27,6 +27,7 @@
 #include "ddraw_private.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(ddraw);
+WINAPI DWORD timeGetTime(void);
 
 static struct ddraw_surface *unsafe_impl_from_IDirectDrawSurface2(IDirectDrawSurface2 *iface);
 static struct ddraw_surface *unsafe_impl_from_IDirectDrawSurface3(IDirectDrawSurface3 *iface);
@@ -49,6 +50,18 @@ HRESULT ddraw_surface_update_frontbuffer(struct ddraw_surface *surface,
     HRESULT hr;
     BOOL ret;
     RECT r;
+
+    DWORD current_time = timeGetTime();
+    if (current_time < surface->ddraw->next_update && !surface->ddraw->force_update)
+    {
+        if (surface->ddraw->next_update > current_time + surface->ddraw->update_interval)
+            surface->ddraw->next_update = current_time + surface->ddraw->update_interval;
+
+        return DD_OK;
+    }
+    rect = NULL;
+
+    surface->ddraw->next_update = current_time + surface->ddraw->update_interval;
 
     if (surface->ddraw->flags & DDRAW_SWAPPED && !read)
     {
@@ -90,6 +103,7 @@ HRESULT ddraw_surface_update_frontbuffer(struct ddraw_surface *surface,
         }
         return hr;
     }
+
 
     if (FAILED(hr = wined3d_texture_get_dc(surface->wined3d_texture, surface->sub_resource_idx, &surface_dc)))
     {
@@ -1006,8 +1020,10 @@ static HRESULT surface_lock(struct ddraw_surface *surface,
         wined3d_box_set(&box, rect->left, rect->top, rect->right, rect->bottom, 0, 1);
     }
 
-    if (surface->surface_desc.ddsCaps.dwCaps & DDSCAPS_PRIMARYSURFACE)
+    if (surface->surface_desc.ddsCaps.dwCaps & DDSCAPS_PRIMARYSURFACE
+        && surface->ddraw->window_focus)
         hr = ddraw_surface_update_frontbuffer(surface, rect, TRUE, 0);
+
     if (SUCCEEDED(hr))
         hr = wined3d_resource_map(wined3d_texture_get_resource(surface->wined3d_texture),
                 surface->sub_resource_idx, &map_desc, rect ? &box : NULL,
@@ -1195,8 +1211,11 @@ static HRESULT WINAPI DECLSPEC_HOTPATCH ddraw_surface7_Unlock(IDirectDrawSurface
 
     wined3d_mutex_lock();
     hr = wined3d_resource_unmap(wined3d_texture_get_resource(surface->wined3d_texture), surface->sub_resource_idx);
-    if (SUCCEEDED(hr) && surface->surface_desc.ddsCaps.dwCaps & DDSCAPS_PRIMARYSURFACE)
+
+    if (SUCCEEDED(hr) && surface->surface_desc.ddsCaps.dwCaps & DDSCAPS_PRIMARYSURFACE
+        && surface->ddraw->window_focus)
         hr = ddraw_surface_update_frontbuffer(surface, &surface->ddraw->primary_lock, FALSE, 0);
+
     wined3d_mutex_unlock();
 
     return hr;

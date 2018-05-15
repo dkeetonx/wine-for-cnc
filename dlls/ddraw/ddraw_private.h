@@ -115,6 +115,14 @@ struct ddraw
     HWND                    devicewindow;
     HWND                    dest_window;
 
+    LRESULT (CALLBACK *wndProc)(HWND, UINT, WPARAM, LPARAM);
+    struct wined3d_display_mode mode;
+    BOOL                    force_update;
+    DWORD                   next_update;
+    DWORD                   update_interval;
+    DWORD                   targetFPS;
+    BOOL                    window_focus;
+
     /* For the dll unload cleanup code */
     struct list ddraw_list_entry;
     /* The surface list - can't relay this to WineD3D
@@ -126,6 +134,8 @@ struct ddraw
     struct FvfToDecl       *decls;
     UINT                    numConvertedDecls, declArraySize;
 };
+struct ddraw *exclusive_ddraw;
+LRESULT CALLBACK TS_WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
 #define DDRAW_WINDOW_CLASS_NAME "DirectDrawDeviceWnd"
 

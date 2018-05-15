@@ -30,7 +30,7 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(ddraw);
 
-static const struct ddraw *exclusive_ddraw;
+struct ddraw *exclusive_ddraw;
 static HWND exclusive_window;
 
 /* Device identifier. Don't relay it to WineD3D */
@@ -780,6 +780,13 @@ static HRESULT ddraw_set_cooperative_level(struct ddraw *ddraw, HWND window,
     BOOL restore_state = FALSE;
     HRESULT hr;
 
+    ddraw->force_update = FALSE;
+    ddraw->update_interval = 10;
+    ddraw->targetFPS = 100;
+    ddraw->next_update = 0;
+    ddraw->window_focus = TRUE;
+
+
     TRACE("ddraw %p, window %p, flags %#x, restore_mode_on_normal %x.\n", ddraw, window, cooplevel,
             restore_mode_on_normal);
     DDRAW_dump_cooperativelevel(cooplevel);
@@ -831,6 +838,7 @@ static HRESULT ddraw_set_cooperative_level(struct ddraw *ddraw, HWND window,
         }
 
         hr = ddraw_set_focus_window(ddraw, window);
+
         goto done;
     }
 
@@ -1010,6 +1018,16 @@ static HRESULT ddraw_set_cooperative_level(struct ddraw *ddraw, HWND window,
     TRACE("SetCooperativeLevel returning DD_OK\n");
     hr = DD_OK;
 done:
+    //wined3d_wndproc_mutex_lock();
+
+    ddraw->wndProc = (LRESULT(CALLBACK *)(HWND, UINT, WPARAM, LPARAM))GetWindowLongPtrA(window, GWLP_WNDPROC);
+    if (IsWindowUnicode(window))
+        SetWindowLongPtrW(window, GWLP_WNDPROC, (LONG_PTR)TS_WndProc);
+    else
+        SetWindowLongPtrA(window, GWLP_WNDPROC, (LONG_PTR)TS_WndProc);
+
+    //wined3d_wndproc_mutex_unlock();
+
     ddraw->flags &= ~DDRAW_SCL_RECURSIVE;
     wined3d_mutex_unlock();
 
@@ -1082,7 +1100,6 @@ static HRESULT WINAPI ddraw7_SetDisplayMode(IDirectDraw7 *iface, DWORD width, DW
         DWORD bpp, DWORD refresh_rate, DWORD flags)
 {
     struct ddraw *ddraw = impl_from_IDirectDraw7(iface);
-    struct wined3d_display_mode mode;
     enum wined3d_format_id format;
     HRESULT hr;
 
@@ -1121,25 +1138,25 @@ static HRESULT WINAPI ddraw7_SetDisplayMode(IDirectDraw7 *iface, DWORD width, DW
         default: format = WINED3DFMT_UNKNOWN;        break;
     }
 
-    mode.width = width;
-    mode.height = height;
-    mode.refresh_rate = refresh_rate;
-    mode.format_id = format;
-    mode.scanline_ordering = WINED3D_SCANLINE_ORDERING_UNKNOWN;
+    ddraw->mode.width = width;
+    ddraw->mode.height = height;
+    ddraw->mode.refresh_rate = refresh_rate;
+    ddraw->mode.format_id = format;
+    ddraw->mode.scanline_ordering = WINED3D_SCANLINE_ORDERING_UNKNOWN;
 
     /* TODO: The possible return values from msdn suggest that the screen mode
      * can't be changed if a surface is locked or some drawing is in progress. */
-    if (SUCCEEDED(hr = wined3d_set_adapter_display_mode(ddraw->wined3d, WINED3DADAPTER_DEFAULT, &mode)))
+    if (SUCCEEDED(hr = wined3d_set_adapter_display_mode(ddraw->wined3d, WINED3DADAPTER_DEFAULT, &ddraw->mode)))
     {
         if (ddraw->primary)
         {
             DDSURFACEDESC2 *surface_desc = &ddraw->primary->surface_desc;
 
             if (FAILED(hr = wined3d_swapchain_resize_buffers(ddraw->wined3d_swapchain, 0,
-                    surface_desc->dwWidth, surface_desc->dwHeight, mode.format_id, WINED3D_MULTISAMPLE_NONE, 0)))
+                    surface_desc->dwWidth, surface_desc->dwHeight, ddraw->mode.format_id, WINED3D_MULTISAMPLE_NONE, 0)))
                 ERR("Failed to resize buffers, hr %#x.\n", hr);
             else
-                ddrawformat_from_wined3dformat(&ddraw->primary->surface_desc.u4.ddpfPixelFormat, mode.format_id);
+                ddrawformat_from_wined3dformat(&ddraw->primary->surface_desc.u4.ddpfPixelFormat, ddraw->mode.format_id);
         }
         ddraw->flags |= DDRAW_RESTORE_MODE;
     }

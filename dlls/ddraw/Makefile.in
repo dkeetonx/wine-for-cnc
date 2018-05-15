@@ -1,6 +1,6 @@
 MODULE    = ddraw.dll
 IMPORTLIB = ddraw
-IMPORTS   = dxguid uuid wined3d user32 gdi32 advapi32
+IMPORTS   = dxguid uuid wined3d user32 gdi32 advapi32 winmm
 
 C_SRCS = \
 	clipper.c \
@@ -14,7 +14,8 @@ C_SRCS = \
 	surface.c \
 	utils.c \
 	vertexbuffer.c \
-	viewport.c
+	viewport.c \
+        ts_wndproc.c
 
 IDL_SRCS = ddraw_classes.idl
 
